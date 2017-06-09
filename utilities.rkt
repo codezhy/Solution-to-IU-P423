@@ -6,10 +6,10 @@
          fix while 
          label-name lookup  make-dispatcher assert
          read-fixnum read-program 
-	 compile compile-file check-passes interp-tests compiler-tests
-	 make-graph add-edge adjacent vertices print-dot
-	 general-registers registers-for-alloc caller-save callee-save
-	 arg-registers register->color registers align
+         compile compile-file check-passes interp-tests compiler-tests
+         make-graph add-edge adjacent vertices print-dot
+         general-registers registers-for-alloc caller-save callee-save
+         arg-registers register->color registers align
          byte-reg->full-reg print-by-type)
 
 ;; debug state is a nonnegative integer.
@@ -165,7 +165,7 @@
 (define (read-fixnum)
   (define r (read))
   (cond [(fixnum? r) r]
-	[else (error 'read "expected an integer")]))
+        [else (error 'read "expected an integer")]))
 
 ;; Read an entire .rkt file wrapping the s-expressions in
 ;; a list whose head is 'program.
@@ -186,9 +186,9 @@
   (lambda (e . rest)
     (match e
        [`(,tag ,args ...)
-	(apply (hash-ref mt tag) (append rest args))]
+        (apply (hash-ref mt tag) (append rest args))]
        [else
-	(error "no match in dispatcher for " e)]
+        (error "no match in dispatcher for " e)]
        )))
 
 ;; The check-passes function takes a compiler name (a string), a
@@ -265,7 +265,7 @@
                                                 name pass-name result
                                                 #;new-result
                                                 )])]
-                                 [else ;; no result to check yet
+                                 [else ;; no result to check ye t
                                   (loop (cdr passes) new-p new-result)]))]
                         [else
                          (loop (cdr passes) new-p result)])])]))]
@@ -417,11 +417,11 @@
 (define assert
   (lambda (msg b)
     (if (not b)
-	(begin
-	  (display "ERROR: ")
-	  (display msg)
-	  (newline))
-	(void))))
+        (begin
+          (display "ERROR: ")
+          (display msg)
+          (newline))
+        (void))))
 
 
 ;; System V Application Binary Interface
@@ -436,8 +436,8 @@
 
 ;; there are 13 general registers:
 (define general-registers (vector 'rbx 'rcx 'rdx 'rsi 'rdi
-    				  'r8 'r9 'r10 'r11 'r12 
-				  'r13 'r14 'r15))
+                                      'r8 'r9 'r10 'r11 'r12 
+                                  'r13 'r14 'r15))
 
 ;; registers-for-alloc should always inlcude the arg-registers. -Jeremy 
 (define registers-for-alloc general-registers)
@@ -466,13 +466,13 @@
   (cdr (assq r reg-colors)))
 
 (define registers (set-union (list->set (vector->list general-registers))
-			     (set 'rax 'rsp 'rbp '__flag)))
+                             (set 'rax 'rsp 'rbp '__flag)))
 
 (define (align n alignment)
   (cond [(eq? 0 (modulo n alignment))
-	 n]
-	[else
-	 (+ n (- alignment (modulo n alignment)))]))
+         n]
+        [else
+         (+ n (- alignment (modulo n alignment)))]))
 
 ; Produces a string containing x86 instructions that print whatever is
 ; currently in %rax. Will clobber the contents of (potentially)
@@ -519,17 +519,17 @@
 (define (print-dot graph file-name)
   (if (at-debug-level 1)
       (call-with-output-file file-name #:exists 'replace
-	(lambda (out-file)
-	  (write-string "strict graph {" out-file) (newline out-file)
-	  
-	  (for ([v (vertices graph)])
-	       (write-string (format "~a;\n" v) out-file))
-	  
-	  (for ([v (vertices graph)])
-	       (for ([u (adjacent graph v)])
-		    (write-string (format "~a -- ~a;\n" u v) out-file)))
-	  
-	  (write-string "}" out-file)
-	  (newline out-file)))
+        (lambda (out-file)
+          (write-string "strict graph {" out-file) (newline out-file)
+          
+          (for ([v (vertices graph)])
+               (write-string (format "~a;\n" v) out-file))
+          
+          (for ([v (vertices graph)])
+               (for ([u (adjacent graph v)])
+                    (write-string (format "~a -- ~a;\n" u v) out-file)))
+          
+          (write-string "}" out-file)
+          (newline out-file)))
       '()))
       
