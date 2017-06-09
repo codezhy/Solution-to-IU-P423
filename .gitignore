@@ -1,0 +1,11 @@
+.DS_STORE
+*.s
+*.o
+*.out
+*.dSYM
+*~
+*.aux
+*.log
+*.pdf
+
+compiled
