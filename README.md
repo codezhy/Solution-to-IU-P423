@@ -1,34 +1,15 @@
-# p423-public-code
-Utility code, test suites, etc. for the compiler course.
+# My Solution to "Essentials of Compilation" compiler course (CSCI P423/523) of Indiana University.
 
-This code will be described in the Appendix of the book.
+I fork the "https://github.com/IUCompilerCourse/support-code-for-students" to start to exercise. 
 
-The `runtime.c` file needs to be compiled and linked with the assembly
-code that your compiler produces. To compile `runtime.c`, do the
-following
+## How to Run Tests
+
 ```
-   gcc -c -g -std=c99 runtime.c
+$ run-tests.rkt
 ```
-This will produce a file named `runtime.o`. The -g flag is to tell the
-compiler to produce debug information that you may need to use
-the gdb (or lldb) debugger.
 
-Next, suppose your compiler has translated the Racket program in file
-`foo.rkt` into the x86 assembly program in file `foo.s` (The .s filename
-extension is the standard one for assembly programs.) To produce
-an executable program, you can then do
+## How to Run Compilers
+
 ```
-  gcc -g runtime.o foo.s
+$ run-compiler.rkt
 ```
-which will produce the executable program named a.out.
-
-There is an example "compiler" in the file `compiler.rkt`.  That
-file defines two passes that translate R_0 programs to R_0 programs
-and tests them using the `interp-tests` function from `utilities.rkt`. It
-tests the passes on the three example programs in the tests
-subdirectory. You may find it amusing (I did!) to insert bugs in the
-compiler and see the errors reported. Note that `interp-tests` does not
-test the final output assembly code; you need to use `compiler-tests`
-for that purpose. The usage of `compiler-tests` is quite similar to
-`interp-tests`.
-
