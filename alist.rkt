@@ -19,9 +19,3 @@
         (if (eq? name old)
           new
           (alist-lookup name (cdr alist)))))))
-
-(define alist (alist-add 'x123 'x (alist-init)))
-(display (alist-lookup 'x alist))
-(newline)
-(display (alist-lookup 'x2 alist))
-(newline)
