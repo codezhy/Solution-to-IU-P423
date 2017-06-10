@@ -78,3 +78,13 @@ class `interp-R0` 中最重要的三个方法， `interp-scheme`, `interp-C`, `i
 
 Essentials-Of-Compilation 书中描述的语言和代码的实现有点错乱。实际上是书中的 R1 (let) 对应 `interp-R0`，R2 (Booleans) 对应 `interp-R1`,
 R3 (Tuples) 对应 `interp-R2`, R4 (Functions) 对应 `interp-R3`, R5 (Lambda) 对应 `interp-R4`, R6 (Typed Racket + Any) 对应 `interp-R6`，R7 (Untyped Racket) 没有对应。
+
+# Chapter 2.5 Flatten Expressions
+
+这节讲到 Racket 返回和处理多值用 `values` 和 `define-values` (及 `let*-values` 等)，注意，用 `values` 构造的值返回的不是 一个 `list`，是真正的多值，如果用返回的多值来调用函数，函数参数的个数必须和多值的个数匹配，用 `call-with-values` 如：
+
+```
+(define (function-with-3-params a b c)
+  (+ a (- b c)))
+(call-with-values (lambda () (values 1 2 3)) function-with-3-params)
+```
