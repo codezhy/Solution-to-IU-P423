@@ -1,29 +1,29 @@
 #lang racket
 
 (require "interp.rkt")
-(require "alist.rkt")
+(require "dict.rkt")
 
 ;; This exports r0-passes, defined below, to users of this file.
 (provide r0-passes r0-select-instructions-pass)
 
 ; uniquify: R0 -> R0
-(define (uniquify alist)
+(define (uniquify env)
   (lambda (ast)
     (match ast
            [(? symbol?)
-            (let [(result (alist-lookup ast alist))]
+            (let [(result (dict-lookup ast env))]
               (if result
                   result
                 ast))]
            [(? integer?) ast]
            [`(let ([,x ,e]) ,body)
             (let* [(new-x (gensym x))
-                   (new-alist (alist-add new-x x alist))]
-              `(let ([,new-x ,((uniquify new-alist) e)]) ,((uniquify new-alist) body)))]
+                   (new-env (dict-add x new-x env))]
+              `(let ([,new-x ,((uniquify new-env) e)]) ,((uniquify new-env) body)))]
            [`(program ,e)
-            `(program ,((uniquify alist) e))]
+            `(program ,((uniquify env) e))]
            [`(,op ,es ...)
-            `(,op ,@(map (uniquify alist) es))]
+            `(,op ,@(map (uniquify env) es))]
            )))
 
 ; flatten: R0 -> C0
@@ -74,55 +74,86 @@
            [(? symbol?) `((var ,ast))]
            [(? integer?) `((int ,ast))]
            [`(assign ,x (+ (read) (read)))
-            `((callq read_int) 
-              (movq (reg rax) (var ,x)) 
-              (callq read_int) 
+            `((callq read_int)
+              (movq (reg rax) (var ,x))
+              (callq read_int)
               (addq (reg rax) (var ,x)))]
            [`(assign ,x (+ ,e1 (read)))
-             `((movq ,@(select-instructions e1) (var ,x))
-               (callq read_int)
-               (addq (reg rax) (var ,x)))]
+            `((movq ,@(select-instructions e1) (var ,x))
+              (callq read_int)
+              (addq (reg rax) (var ,x)))]
            [`(assign ,x (+ (read) ,e2))
-             `((callq read_int)
-               (movq (reg rax) (var ,x))
-               (addq ,@(select-instructions e2) (var ,x)))]
+            `((callq read_int)
+              (movq (reg rax) (var ,x))
+              (addq ,@(select-instructions e2) (var ,x)))]
            [`(assign ,x (+ ,e1 ,e2))
             (cond
              [(eq? x e1) `(addq ,(select-instructions e2) (var ,x))]
              [(eq? x e2) `(addq ,(select-instructions e1) (var ,x))]
              [else `((movq ,@(select-instructions e1) (var ,x)) (addq ,@(select-instructions e2) (var ,x)))])]
            [`(assign ,x (- (read)))
-             `((callq read_int) (movq (reg rax) (var ,x)) (negq (var ,x)))]
+            `((callq read_int) (movq (reg rax) (var ,x)) (negq (var ,x)))]
            [`(assign ,x (- ,e))
-             `((movq ,@(select-instructions e) (var ,x)) (negq (var ,x)))]
+            `((movq ,@(select-instructions e) (var ,x)) (negq (var ,x)))]
            [`(assign ,x (read))
-             `((callq read_int) (movq (reg rax) (var ,x)))]
+            `((callq read_int) (movq (reg rax) (var ,x)))]
            [`(assign ,x ,e)
-             `((movq ,@(select-instructions e) (var ,x)))]
+            `((movq ,@(select-instructions e) (var ,x)))]
            [`(return (read))
-             `((callq read_int))]
+            `((callq read_int))]
            [`(return ,e)
-             `((movq ,@(select-instructions e) (reg rax)))]
+            `((movq ,@(select-instructions e) (reg rax)))]
            [`(program ,args ,es ...)
-             (let ([ins (flatten-list-1 (map select-instructions es))])
-                 `(program ,args ,@ins))]
-    )))
+            (define flatten-list-1
+              (lambda (lst)
+                (cond [(null? lst) '()]
+                      [(list? (car lst)) (append (car lst) (flatten-list-1 (cdr lst)))]
+                      [else (cons (car lst) (flatten-list-1 (cdr lst)))])))
+            (let ([ins (flatten-list-1 (map select-instructions es))])
+              `(program ,args ,@ins))]
+           )))
 
-(define flatten-list-1
-  (lambda (lst)
-    (cond [(null? lst) '()]
-          [(list? (car lst)) (append (car lst) (flatten-list-1 (cdr lst)))]
-          [else (cons (car lst) (flatten-list-1 (cdr lst)))])))
+; assign-homes: x86 -> x86
+(define (assign-homes env)
+  (lambda (ast)
+    (match ast
+           [`(var ,x)
+            (let ([value (dict-lookup x env)])
+              (if value
+                  value
+                (error 'assign-homes "can't assign home for ~a\n" x)))]
+           [`(movq ,e1 ,e2)
+            `(movq ,((assign-homes env) e1) ,((assign-homes env) e2))]
+           [`(addq ,e1 ,e2)
+            `(addq ,((assign-homes env) e1) ,((assign-homes env) e2))]
+           [`(negq ,e)
+            `(negq ,((assign-homes env) e))]
+           [`(return ,e)
+            `(return ,((assign-homes env) e))]
+           [`(program ,args ,es ...)
+            `(program ,(length args) ,@(map (assign-homes (get-variable-to-homes-map args)) es))]
+           [else ast]
+           )))
+
+(define get-variable-to-homes-map
+  (lambda (variable-lst)
+    (define inner
+      (lambda (variable-lst offset)
+        (cond [(null? variable-lst) '()]
+              [else (dict-add (car variable-lst) `(deref rbp ,offset)
+                              (inner (cdr variable-lst) (+ offset 8)))])))
+    (inner variable-lst (* (length variable-lst) -8))))
 
 ;; Define the passes to be used by interp-tests and the grader
 ;; Note that your compiler file (or whatever file provides your passes)
 ;; should be named "compiler.rkt"
 (define r0-passes
-  `( ("uniquify" ,(uniquify (alist-init)) ,interp-scheme)
+  `( ("uniquify" ,(uniquify (dict-init)) ,interp-scheme)
     ("flatten" ,flatten2 ,interp-C)
     ("select instructions" ,select-instructions ,interp-x86)
+    ("assign homes" ,(assign-homes (dict-init)) ,interp-x86)
     ))
 
 (define r0-select-instructions-pass
   `( ("select instructions" ,select-instructions ,interp-x86)
-  ))
+    ))
