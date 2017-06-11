@@ -6,7 +6,7 @@
 ;; This exports r0-passes, defined below, to users of this file.
 (provide r0-passes r0-select-instructions-pass)
 
-; uniquify: R0 -> R0
+; Pass uniquify: R0 -> R0
 (define (uniquify env)
   (lambda (ast)
     (match ast
@@ -26,7 +26,7 @@
             `(,op ,@(map (uniquify env) es))]
            )))
 
-; flatten: R0 -> C0
+; Pass flatten: R0 -> C0
 (define flatten
   (lambda (ast)
     (match ast
@@ -67,7 +67,7 @@
     (define-values (exps assigns tmp-vars) (flatten ast))
     exps))
 
-; select-instructions: C0 -> X86
+; Pass select-instructions: C0 -> X86*
 (define select-instructions
   (lambda (ast)
     (match ast
@@ -104,16 +104,17 @@
            [`(return ,e)
             `((movq ,@(select-instructions e) (reg rax)))]
            [`(program ,args ,es ...)
-            (define flatten-list-1
-              (lambda (lst)
-                (cond [(null? lst) '()]
-                      [(list? (car lst)) (append (car lst) (flatten-list-1 (cdr lst)))]
-                      [else (cons (car lst) (flatten-list-1 (cdr lst)))])))
             (let ([ins (flatten-list-1 (map select-instructions es))])
               `(program ,args ,@ins))]
            )))
 
-; assign-homes: x86 -> x86
+(define flatten-list-1
+  (lambda (lst)
+    (cond [(null? lst) '()]
+          [(list? (car lst)) (append (car lst) (flatten-list-1 (cdr lst)))]
+          [else (cons (car lst) (flatten-list-1 (cdr lst)))])))
+
+; Pass assign-homes: x86* -> x86*
 (define (assign-homes env)
   (lambda (ast)
     (match ast
@@ -144,6 +145,20 @@
                               (inner (cdr variable-lst) (+ offset 8)))])))
     (inner variable-lst (* (length variable-lst) -8))))
 
+; Pass patch-instructions: x86* -> x86*
+(define patch-instructions
+  (lambda (ast)
+    (match ast
+           [`(movq (deref rbp ,offset1) (deref rbp ,offset2))
+            `((movq (deref rbp ,offset1) (reg rax)) (movq (reg rax) (deref rbp ,offset2)))]
+           [`(addq (deref rbp ,offset1) (deref rbp ,offset2))
+            `((movq (deref rbp ,offset1) (reg rax)) (addq (reg rax) (deref rbp ,offset2)))]
+           [`(program ,arg-num ,es ...)
+            (let ([ins (flatten-list-1 (map patch-instructions es))])
+              `(program ,arg-num ,@ins))]
+           [else `(,ast)]
+           )))
+
 ;; Define the passes to be used by interp-tests and the grader
 ;; Note that your compiler file (or whatever file provides your passes)
 ;; should be named "compiler.rkt"
@@ -152,6 +167,7 @@
     ("flatten" ,flatten2 ,interp-C)
     ("select instructions" ,select-instructions ,interp-x86)
     ("assign homes" ,(assign-homes (dict-init)) ,interp-x86)
+    ("patch instructions" ,patch-instructions ,interp-x86)
     ))
 
 (define r0-select-instructions-pass
