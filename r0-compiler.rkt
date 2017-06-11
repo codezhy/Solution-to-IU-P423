@@ -62,13 +62,6 @@
            [`(read) (values `(read) '() '())]
            )))
 
-(define get-operand-from-flatten
-  (lambda (ast)
-    (define-values (exps assignments tmp-vars) (flatten ast))
-    (if (null? tmp-vars)
-        (last exps)
-      (last tmp-vars))))
-
 (define flatten2
   (lambda (ast)
     (define-values (exps assigns tmp-vars) (flatten ast))
