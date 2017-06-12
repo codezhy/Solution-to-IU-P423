@@ -168,8 +168,7 @@
            [`(addq ,e1 ,e2) (_s8 (format "addq ~a, ~a\n" (print-x86 e1) (print-x86 e2)))]
            [`(negq ,e) (_s8 (format "negq ~a\n" (print-x86 e)))]
            [`(callq ,e)
-            (string-append (_s8 "movq %rax, %rdi\n")
-                           (_s8 (format "callq ~a\n" (_proc-name e))))]
+             (_s8 (format "callq ~a\n" (_proc-name e)))]
            [`(program ,arg-num ,es ...)
             (let ([size (_stack-size arg-num)])
               (string-append (_s8 (format ".globl ~a\n" (_proc-name "main")))
