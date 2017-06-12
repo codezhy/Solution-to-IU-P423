@@ -7,4 +7,8 @@
 
 (debug-level 4)
 
-((compile-file #f r0-passes) "tests/r1_8.rkt")
+(define comfile
+  (command-line
+    #:program "compile"
+    #:args (filename)
+    ((compile-file #f r0-passes) filename)))
