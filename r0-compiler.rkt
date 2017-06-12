@@ -169,11 +169,11 @@
            [`(negq ,e) (_s8 (format "negq ~a\n" (print-x86 e)))]
            [`(callq ,e)
             (string-append (_s8 "movq %rax, %rdi\n")
-                           (_s8 (format "callq ~a\n" e)))]
+                           (_s8 (format "callq ~a\n" (_proc-name e))))]
            [`(program ,arg-num ,es ...)
-            (let ([size (* arg-num 8)])
-              (string-append (_s8 ".globl main\n")
-                             "main:\n"
+            (let ([size (_stack-size arg-num)])
+              (string-append (_s8 (format ".globl ~a\n" (_proc-name "main")))
+                             (format "~a:\n" (_proc-name "main"))
                              (_s8 "pushq %rbp\n")
                              (_s8 "movq %rsp, %rbp\n")
                              (if (= size 0) "" (_s8 (format "subq $~a, %rsp\n" size)))
@@ -181,7 +181,7 @@
                              (_string-list-append (map print-x86 es))
                              "\n"
                              (_s8 "movq %rax, %rdi\n")
-                             (_s8 "callq print_int\n")
+                             (_s8 (format "callq ~a\n" (_proc-name "print_int")))
                              (if (= size 0) "" (_s8 (format "addq $~a, %rsp\n" size)))
                              (_s8 "popq %rbp\n")
                              (_s8 "retq")))]
@@ -190,6 +190,16 @@
 (define _s8
   (lambda (str)
     (format "        ~a" str)))
+
+(define _proc-name
+  (lambda (name)
+    (cond [(eq? (system-type 'os) 'macosx) (format "_~a" name)]
+          [else (format "~a" name)])))
+
+(define _stack-size
+  (lambda (arg-num)
+    (cond [(eq? (system-type 'os) 'macosx) (* (ceiling (/ arg-num 2)) 16)]
+          [else (* arg-num 8)])))
 
 (define _string-list-append
   (lambda (lst)
