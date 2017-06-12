@@ -129,8 +129,6 @@
             `(addq ,((assign-homes env) e1) ,((assign-homes env) e2))]
            [`(negq ,e)
             `(negq ,((assign-homes env) e))]
-           [`(return ,e)
-            `(return ,((assign-homes env) e))]
            [`(program ,args ,es ...)
             `(program ,(length args) ,@(map (assign-homes (get-variable-to-homes-map args)) es))]
            [else ast]
@@ -145,7 +143,7 @@
                               (inner (cdr variable-lst) (+ offset 8)))])))
     (inner variable-lst (* (length variable-lst) -8))))
 
-; Pass patch-instructions: x86* -> x86*
+; Pass patch-instructions: x86* -> x86
 (define patch-instructions
   (lambda (ast)
     (match ast
@@ -159,6 +157,46 @@
            [else `(,ast)]
            )))
 
+; Pass print-x86: x86 -> x86†
+(define print-x86
+  (lambda (ast)
+    (match ast
+           [`(int ,e) (format "$~a" e)]
+           [`(reg ,e) (format "%~a" e)]
+           [`(deref rbp ,offset) (format "~a(%rbp)" offset)]
+           [`(movq ,e1 ,e2) (_s8 (format "movq ~a, ~a\n" (print-x86 e1) (print-x86 e2)))]
+           [`(addq ,e1 ,e2) (_s8 (format "addq ~a, ~a\n" (print-x86 e1) (print-x86 e2)))]
+           [`(negq ,e) (_s8 (format "negq ~a\n" (print-x86 e)))]
+           [`(callq ,e)
+            (string-append (_s8 "movq %rax, %rdi\n")
+                           (_s8 (format "callq ~a\n" e)))]
+           [`(program ,arg-num ,es ...)
+            (let ([size (* arg-num 8)])
+              (string-append (_s8 ".globl main\n")
+                             "main:\n"
+                             (_s8 "pushq %rbp\n")
+                             (_s8 "movq %rsp, %rbp\n")
+                             (if (= size 0) "" (_s8 (format "subq $~a, %rsp\n" size)))
+                             "\n"
+                             (_string-list-append (map print-x86 es))
+                             "\n"
+                             (_s8 "movq %rax, %rdi\n")
+                             (_s8 "callq print_int\n")
+                             (if (= size 0) "" (_s8 (format "addq $~a, %rsp\n" size)))
+                             (_s8 "popq %rbp\n")
+                             (_s8 "retq")))]
+           )))
+
+(define _s8
+  (lambda (str)
+    (format "        ~a" str)))
+
+(define _string-list-append
+  (lambda (lst)
+    (if (null? lst)
+        ""
+      (string-append (car lst) (_string-list-append (cdr lst))))))
+
 ;; Define the passes to be used by interp-tests and the grader
 ;; Note that your compiler file (or whatever file provides your passes)
 ;; should be named "compiler.rkt"
@@ -168,6 +206,7 @@
     ("select instructions" ,select-instructions ,interp-x86)
     ("assign homes" ,(assign-homes (dict-init)) ,interp-x86)
     ("patch instructions" ,patch-instructions ,interp-x86)
+    ("print x86" ,print-x86 #f)
     ))
 
 (define r0-select-instructions-pass
