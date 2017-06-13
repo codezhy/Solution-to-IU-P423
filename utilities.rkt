@@ -7,7 +7,7 @@
          label-name lookup  make-dispatcher assert
          read-fixnum read-program 
          compile compile-file check-passes interp-tests compiler-tests
-         make-graph add-edge adjacent vertices print-dot
+         make-graph add-edge add-edges adjacent vertices print-dot
          general-registers registers-for-alloc caller-save callee-save
          arg-registers register->color registers align
          byte-reg->full-reg print-by-type)
@@ -509,6 +509,14 @@
 (define (add-edge graph u v)
   (hash-set! graph u (set-add (hash-ref graph u (set)) v))
   (hash-set! graph v (set-add (hash-ref graph v (set)) u)))
+
+(define (add-edges graph pairs)
+  (cond [(null? pairs) graph]
+        [(pair? (car pairs)) 
+          (add-edge graph (caar pairs) (cdar pairs))
+          (add-edges graph (cdr pairs))
+          graph]
+        [else (add-edges graph (cdr pairs))]))
 
 (define (adjacent graph u)
   (hash-ref graph u))
