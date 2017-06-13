@@ -168,7 +168,7 @@
            [`(addq ,e1 ,e2) (_s8 (format "addq ~a, ~a\n" (print-x86 e1) (print-x86 e2)))]
            [`(negq ,e) (_s8 (format "negq ~a\n" (print-x86 e)))]
            [`(callq ,e)
-             (_s8 (format "callq ~a\n" (_proc-name e)))]
+            (_s8 (format "callq ~a\n" (_proc-name e)))]
            [`(program ,arg-num ,es ...)
             (let ([size (_stack-size arg-num)])
               (string-append (_s8 (format ".globl ~a\n" (_proc-name "main")))
@@ -206,18 +206,56 @@
         ""
       (string-append (car lst) (_string-list-append (cdr lst))))))
 
-;; Define the passes to be used by interp-tests and the grader
-;; Note that your compiler file (or whatever file provides your passes)
-;; should be named "compiler.rkt"
-(define r0-passes
-  `( ("uniquify" ,(uniquify (dict-init)) ,interp-scheme)
-    ("flatten" ,flatten2 ,interp-C)
-    ("select instructions" ,select-instructions ,interp-x86)
-    ("assign homes" ,(assign-homes (dict-init)) ,interp-x86)
-    ("patch instructions" ,patch-instructions ,interp-x86)
-    ("print x86" ,print-x86 #f)
-    ))
+; pass uncover-live : x86* -> x86*
+(define uncover-live
+  (lambda (ast)
+    (match ast
+           [`(program ,args ,es ...)
+            (let ([live-afters (_uncover-live es '())])
+              `(program ,(cons args live-afters) ,@es))]
+           )))
 
-(define r0-select-instructions-pass
-  `( ("select instructions" ,select-instructions ,interp-x86)
-    ))
+  (define _uncover-live
+    (lambda (instruction-lst live-afters)
+      (cond [(null? instruction-lst) live-afters]
+            [(null? live-afters)
+             (_uncover-live (cdr instruction-lst)
+                            (list (set-subtract (set-union (set)
+                                                           (_compute-write-variables (car instruction-lst)))
+                                                (_compute-read-variables (car instruction-lst)))))]
+            [else
+             (_uncover-live (cdr instruction-lst)
+                            (append live-afters
+                                    (list (set-subtract (set-union (last live-afters)
+                                                                   (_compute-write-variables (car instruction-lst)))
+                                                        (_compute-read-variables (car instruction-lst))))))]
+            )))
+  
+  (define _compute-read-variables
+    (lambda (instruction)
+      (match instruction
+             [`(,op (var ,e1) ,e2) (set e1)]
+             [else (set)])))
+  
+  (define _compute-write-variables
+    (lambda (instruction)
+      (match instruction
+             [`(,op ,e1 (var ,e2)) (set e2)]
+             [else (set)])))
+  
+  ;; Define the passes to be used by interp-tests and the grader
+  ;; Note that your compiler file (or whatever file provides your passes)
+  ;; should be named "compiler.rkt"
+  (define r0-passes
+    `( ("uniquify" ,(uniquify (dict-init)) ,interp-scheme)
+      ("flatten" ,flatten2 ,interp-C)
+      ("select instructions" ,select-instructions ,interp-x86)
+      ("uncover lives" ,uncover-live ,interp-x86)
+      ;("assign homes" ,(assign-homes (dict-init)) ,interp-x86)
+      ;("patch instructions" ,patch-instructions ,interp-x86)
+      ;("print x86" ,print-x86 #f)
+      ))
+  
+  (define r0-select-instructions-pass
+    `( ("select instructions" ,select-instructions ,interp-x86)
+      ))
