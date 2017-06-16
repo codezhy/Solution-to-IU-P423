@@ -4,6 +4,7 @@
 (require "utilities.rkt")
 (require "interp.rkt")
 (require "r0-compiler.rkt")
+(require "r0-reg-compiler.rkt")
 
 (debug-level 1)
 
