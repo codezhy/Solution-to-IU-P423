@@ -3,19 +3,22 @@
 (require (for-syntax racket))
 (provide debug-level debug verbose vomit
          map2 b2i i2b
-         fix while 
+         fix while
          label-name lookup  make-dispatcher assert
-         read-fixnum read-program 
+         read-fixnum read-program
          compile compile-file check-passes interp-tests compiler-tests
          make-graph add-edge add-edges adjacent vertices print-dot
          general-registers registers-for-alloc caller-save callee-save
-         arg-registers register->color registers align
-         byte-reg->full-reg print-by-type)
+         arg-registers register->color color->register registers align
+         byte-reg->full-reg print-by-type
+         make-color-info-hash set-info! set-color! add-saturation-color!
+         color saturation highest-saturation-var
+         )
 
 ;; debug state is a nonnegative integer.
 ;; The easiest way to increment it is passing the -d option
 ;; to run-tests.rkt
-;; 0 none 
+;; 0 none
 ;; 1 trace passes in run-test (-d)
 ;; 2 debug macros (-dd)
 ;; 3 verbose debugging (-ddd)
@@ -25,7 +28,7 @@
   (make-parameter
    0    ;; If you have to hard code me change 0 to 1-4
    (lambda (d)
-     (unless (exact-nonnegative-integer? d) 
+     (unless (exact-nonnegative-integer? d)
        (error 'debug-state "expected nonnegative-integer in ~a" d))
      d)))
 
@@ -41,33 +44,33 @@
 ;; debubing expression for easier location.
 (define-syntax (print-label-and-values stx)
   (syntax-case stx ()
-    [(_ label value ...)
-     (let* ([src (syntax-source stx)]
-            [src (if (path? src)
-                     (find-relative-path (current-directory) src)
-                     src)]
-            [lno (syntax-line stx)])
-       #`(begin
-           (printf "~a @ ~a:~a\n" label #,src #,lno)
-        (begin
-          (printf "~a:\n" 'value)
-          (if (string? value)
-              (display value)
-              (pretty-print value))
-          (newline))
-        ...
-        (newline)))]))
+               [(_ label value ...)
+                (let* ([src (syntax-source stx)]
+                       [src (if (path? src)
+                                (find-relative-path (current-directory) src)
+                              src)]
+                       [lno (syntax-line stx)])
+                  #`(begin
+                     (printf "~a @ ~a:~a\n" label #,src #,lno)
+                     (begin
+                      (printf "~a:\n" 'value)
+                      (if (string? value)
+                          (display value)
+                        (pretty-print value))
+                      (newline))
+                     ...
+                     (newline)))]))
 
 ;; This series of macros are used for debuging purposes
 ;; and print out
 (define-syntax-rule (define-debug-level name level)
-    (...
-     (define-syntax (name stx)
-      (syntax-case stx ()
-        [(_ label value ...)
-         #`(when (at-debug-level level)
-             #,(syntax/loc stx
-                 (print-label-and-values label value ...)))]))))
+  (...
+   (define-syntax (name stx)
+     (syntax-case stx ()
+                  [(_ label value ...)
+                   #`(when (at-debug-level level)
+                      #,(syntax/loc stx
+                                    (print-label-and-values label value ...)))]))))
 (define-debug-level trace 1)
 (define-debug-level debug 2)
 (define-debug-level verbose 3)
@@ -76,25 +79,25 @@
 #|
 (define-syntax (trace stx)
   (syntax-case stx ()
-    [(_ label value ...) 
-     #`(when (at-debug-level 1)
-         #,(syntax/loc stx
-             (print-label-and-values label value ...)))]))
+               [(_ label value ...)
+                #`(when (at-debug-level 1)
+                   #,(syntax/loc stx
+                                 (print-label-and-values label value ...)))]))
 
 (define-syntax (debug stx)
   (syntax-case stx ()
-    [(_ label value ...) 
-     #`(when (at-debug-level 2)
-         #,(syntax/loc stx
-             (print-label-and-values label value ...)))]))
+               [(_ label value ...)
+                #`(when (at-debug-level 2)
+                   #,(syntax/loc stx
+                                 (print-label-and-values label value ...)))]))
 
 
 (define-syntax (vomit stx)
   (syntax-case stx ()
-    [(_ label value ...)
-     #`(when (at-debug-level 4)
-         #,(syntax/loc stx
-             (print-label-and-values label value ...)))]))
+               [(_ label value ...)
+                #`(when (at-debug-level 4)
+                   #,(syntax/loc stx
+                                 (print-label-and-values label value ...)))]))
 |#
 
 (define-syntax-rule (while condition body ...)
@@ -133,14 +136,14 @@
   (unless (or (symbol? name) (string? name))
     (error 'label-name "expected string or symbol got ~s" name))
   (cond
-    [(symbol? name) (label-name (symbol->string name))]
-    [(eqv? (system-type 'os) 'macosx) (string-append "_" name)]
-    [else name]))
+   [(symbol? name) (label-name (symbol->string name))]
+   [(eqv? (system-type 'os) 'macosx) (string-append "_" name)]
+   [else name]))
 
 ;; The lookup function takes a key and an association list
 ;; and returns the corresponding value. It triggers an
 ;; error if the key is not present in the association list.
-;;   
+;;
 ;; The association list may be constructed of either
 ;; immutable or mutable pairs.
 ;;
@@ -149,18 +152,18 @@
 (define (lookup x ls [default no-default])
   (let recur ([xs ls])
     (cond
-      [(null? xs)
-       (if (eq? default no-default)
-           (error 'lookup "didn't find ~a in ~a" x ls)
-           default)]
-      [(pair? xs)
-       (define fst (car xs))
-       (cond
-         [(and (pair?  fst) (equal? x (car  fst))) (cdr  fst)]
-         [(and (mpair? fst) (equal? x (mcar fst))) (mcdr fst)]
-         [(or (pair? fst) (mpair? fst)) (recur (cdr xs))]
-         [else (error 'lookup "expected pair for ~a in ~a" fst ls)])]
-      [else (error 'lookup "expected an association list in ~a" ls)])))
+     [(null? xs)
+      (if (eq? default no-default)
+          (error 'lookup "didn't find ~a in ~a" x ls)
+        default)]
+     [(pair? xs)
+      (define fst (car xs))
+      (cond
+       [(and (pair?  fst) (equal? x (car  fst))) (cdr  fst)]
+       [(and (mpair? fst) (equal? x (mcar fst))) (mcdr fst)]
+       [(or (pair? fst) (mpair? fst)) (recur (cdr xs))]
+       [else (error 'lookup "expected pair for ~a in ~a" fst ls)])]
+     [else (error 'lookup "expected an association list in ~a" ls)])))
 
 (define (read-fixnum)
   (define r (read))
@@ -177,19 +180,19 @@
   (debug "utilities/read-program" path)
   (define input-prog
     (call-with-input-file path
-      (lambda (f)
-        `(program . ,(for/list ([e (in-port read f)]) e)))))
+                          (lambda (f)
+                            `(program . ,(for/list ([e (in-port read f)]) e)))))
   (debug "utilities/read-program" input-prog)
   input-prog)
 
 (define (make-dispatcher mt)
   (lambda (e . rest)
     (match e
-       [`(,tag ,args ...)
-        (apply (hash-ref mt tag) (append rest args))]
-       [else
-        (error "no match in dispatcher for " e)]
-       )))
+           [`(,tag ,args ...)
+            (apply (hash-ref mt tag) (append rest args))]
+           [else
+            (error "no match in dispatcher for " e)]
+           )))
 
 ;; The check-passes function takes a compiler name (a string), a
 ;; typechecker (see below), a description of the passes (see below),
@@ -211,7 +214,7 @@
 ;;
 ;; The typechecker is a function of exactly one argument that EITHER
 ;; raises an error using the (error) function when it encounters a
-;; type error, or returns #f when it encounters a type error. 
+;; type error, or returns #f when it encounters a type error.
 
 (define (check-passes name typechecker passes initial-interp)
   (lambda (test-name)
@@ -222,53 +225,53 @@
     (define sexp (read-program program-name))
     (debug "check passes:" sexp)
     (define type-error-expected (file-exists? (format "tests/~a.tyerr" test-name)))
-    (define tsexp (test-typecheck typechecker sexp))    
+    (define tsexp (test-typecheck typechecker sexp))
     (cond
      [(and type-error-expected tsexp)
       (error (format "expected type error in compiler '~a', but no error raised by typechecker" name))]
      [type-error-expected 'expected-type-error]
-     [tsexp 
+     [tsexp
       (let loop ([passes passes] [p tsexp]
                  [result (if (file-exists? input-file-name)
                              (with-input-from-file input-file-name
-                               (lambda () (initial-interp tsexp)))
-                             (initial-interp tsexp))])
+                                                   (lambda () (initial-interp tsexp)))
+                           (initial-interp tsexp))])
         (cond [(null? passes) result]
               [else
                (match (car passes)
-                 [`(,pass-name ,pass ,interp)
-                  (let ([input p])
-                    (debug (string-append "running pass: " pass-name)
-                           input))
-                  (define new-p (pass p))
-                  (let ([output new-p])
-                    (trace (string-append "running pass: " pass-name)
-                           output))
-                  (cond [interp
-                         (let ([new-result
-                                ;; if there is an input file with the same name
-                                ;; as this test bing current-input-port to that
-                                ;; file's input port so that the interpreters
-                                ;; can use it as test input.
-                                (if (file-exists? input-file-name) 
-                                    (with-input-from-file input-file-name
-                                      (lambda () (interp new-p)))
-                                    (interp new-p))])
-                           (cond [result
-                                  (cond [(equal? result new-result)
-                                         (loop (cdr passes) new-p new-result)]
-                                        [else
-                                         (display "in program")(newline)
-                                         (pretty-print new-p)(newline)
-                                         (error 'check-passes
-                                                "differing results in compiler '~a' pass '~a', expected ~a, not"
-                                                name pass-name result
-                                                #;new-result
-                                                )])]
-                                 [else ;; no result to check ye t
-                                  (loop (cdr passes) new-p new-result)]))]
-                        [else
-                         (loop (cdr passes) new-p result)])])]))]
+                      [`(,pass-name ,pass ,interp)
+                       (let ([input p])
+                         (debug (string-append "running pass: " pass-name)
+                                input))
+                       (define new-p (pass p))
+                       (let ([output new-p])
+                         (trace (string-append "running pass: " pass-name)
+                                output))
+                       (cond [interp
+                              (let ([new-result
+                                     ;; if there is an input file with the same name
+                                     ;; as this test bing current-input-port to that
+                                     ;; file's input port so that the interpreters
+                                     ;; can use it as test input.
+                                     (if (file-exists? input-file-name)
+                                         (with-input-from-file input-file-name
+                                                               (lambda () (interp new-p)))
+                                       (interp new-p))])
+                                (cond [result
+                                       (cond [(equal? result new-result)
+                                              (loop (cdr passes) new-p new-result)]
+                                             [else
+                                              (display "in program")(newline)
+                                              (pretty-print new-p)(newline)
+                                              (error 'check-passes
+                                                     "differing results in compiler '~a' pass '~a', expected ~a, not"
+                                                     name pass-name result
+                                                     #;new-result
+                                                     )])]
+                                      [else ;; no result to check ye t
+                                            (loop (cdr passes) new-p new-result)]))]
+                             [else
+                              (loop (cdr passes) new-p result)])])]))]
      [else (error 'check-passes "unexpected type error raised by compiler '~a'" name)])))
 
 
@@ -289,35 +292,35 @@
     (define file-base (string-trim prog-file-name ".rkt"))
     (define out-file-name (string-append file-base ".s"))
     (call-with-output-file
-      out-file-name
-      #:exists 'replace
-      (lambda (out-file)
-        (define sexp (read-program prog-file-name))
-        (define tsexp (test-typecheck typechecker sexp))
-        (if tsexp
-            (let ([x86 (let loop ([passes passes] [p tsexp])
-                         (cond [(null? passes) p]
-                               [else
-                                (match (car passes)
-                                  [`(,name ,pass ,interp)
-                                   (let* ([new-p (pass p)])
-                                     (loop (cdr passes) new-p)
-                                     )])]))])
-              (cond [(string? x86)
-                     (write-string x86 out-file)
-                     (newline out-file)
-                     #t]
-                    [else
-                     (error "compiler did not produce x86 output")])
-              )
-            #f)))))
+     out-file-name
+     #:exists 'replace
+     (lambda (out-file)
+       (define sexp (read-program prog-file-name))
+       (define tsexp (test-typecheck typechecker sexp))
+       (if tsexp
+           (let ([x86 (let loop ([passes passes] [p tsexp])
+                        (cond [(null? passes) p]
+                              [else
+                               (match (car passes)
+                                      [`(,name ,pass ,interp)
+                                       (let* ([new-p (pass p)])
+                                         (loop (cdr passes) new-p)
+                                         )])]))])
+             (cond [(string? x86)
+                    (write-string x86 out-file)
+                    (newline out-file)
+                    #t]
+                   [else
+                    (error "compiler did not produce x86 output")])
+             )
+         #f)))))
 
 ;; The interp-tests function takes a compiler name (a string), a
 ;; typechecker (see the comment for check-passes) a description of the
 ;; passes (ditto) a test family name (a string), and a list of test
 ;; numbers, and runs the compiler passes and the interpreters to check
 ;; whether the passes correct.
-;; 
+;;
 ;; This function assumes that the subdirectory "tests" has a bunch of
 ;; Scheme programs whose names all start with the family name,
 ;; followed by an underscore and then the test number, ending in
@@ -330,9 +333,9 @@
 (define (interp-tests name typechecker passes initial-interp test-family test-nums)
   (define checker (check-passes name typechecker passes initial-interp))
   (for ([test-number (in-list test-nums)])
-    (let ([test-name (format "~a_~a" test-family test-number)])
-      (debug "utilities/interp-test" test-name)
-      (checker test-name))))
+       (let ([test-name (format "~a_~a" test-family test-number)])
+         (debug "utilities/interp-test" test-name)
+         (checker test-name))))
 
 ;; The compiler-tests function takes a compiler name (a string), a
 ;; typechecker (see the comment for check-passes) a description of the
@@ -351,48 +354,48 @@
   (define compiler (compile-file typechecker passes))
   (debug "compiler-tests starting" '())
   (for ([test-number (in-list test-nums)])
-    (define test-name  (format "~a_~a" test-family test-number))
-    (debug "compiler-tests, testing:" test-name)
-    (define type-error-expected (file-exists? (format "tests/~a.tyerr" test-name)))
-    (define typechecks (compiler (format "tests/~a.rkt" test-name)))
-    (if (and (not typechecks) (not type-error-expected))
-        (error (format "test ~a failed, unexpected type error" test-name)) 
-        '())
-    (if typechecks
-        (if (system (format "gcc -g -std=c99 runtime.o tests/~a.s" test-name))
-            (void) (exit))
-        '())
-    (let* ([input (if (file-exists? (format "tests/~a.in" test-name))
-                      (format " < tests/~a.in" test-name)
-                      "")]
-           [output (if (file-exists? (format "tests/~a.res" test-name))
-                       (call-with-input-file
-                         (format "tests/~a.res" test-name)
-                         (lambda (f) (read-line f)))
-                       "42")]
-           [progout (if typechecks (process (format "./a.out~a" input)) 'type-error)]
-           )
-      ;; process returns a list, it's first element is stdout
-      (match progout
-        ['type-error (display test-name) (display " ") (flush-output)] ;already know we don't have a false positive
-        [`(,in1 ,out ,_ ,in2 ,control-fun)
-         (if type-error-expected
-             (error (format "test ~a passed typechecking but should not have." test-name)) '())
-         (control-fun 'wait)
-         (cond [(eq? (control-fun 'status) 'done-ok)
-                (let ([result (read-line (car progout))])
-                  (if (eq? (string->symbol result) (string->symbol output))
-                      (begin (display test-name)(display " ")(flush-output))
-                      (error (format "test ~a failed, output: ~a, expected ~a" 
-                                     test-name result output))))]
-               [else
-                (error
-                 (format "test ~a error in x86 execution, exit code: ~a" 
-                         test-name (control-fun 'exit-code)))])
-         (close-input-port in1)
-         (close-input-port in2)
-         (close-output-port out)])
-      )))
+       (define test-name  (format "~a_~a" test-family test-number))
+       (debug "compiler-tests, testing:" test-name)
+       (define type-error-expected (file-exists? (format "tests/~a.tyerr" test-name)))
+       (define typechecks (compiler (format "tests/~a.rkt" test-name)))
+       (if (and (not typechecks) (not type-error-expected))
+           (error (format "test ~a failed, unexpected type error" test-name))
+         '())
+       (if typechecks
+           (if (system (format "gcc -g -std=c99 runtime.o tests/~a.s" test-name))
+               (void) (exit))
+         '())
+       (let* ([input (if (file-exists? (format "tests/~a.in" test-name))
+                         (format " < tests/~a.in" test-name)
+                       "")]
+              [output (if (file-exists? (format "tests/~a.res" test-name))
+                          (call-with-input-file
+                           (format "tests/~a.res" test-name)
+                           (lambda (f) (read-line f)))
+                        "42")]
+              [progout (if typechecks (process (format "./a.out~a" input)) 'type-error)]
+              )
+         ;; process returns a list, it's first element is stdout
+         (match progout
+                ['type-error (display test-name) (display " ") (flush-output)] ;already know we don't have a false positive
+                [`(,in1 ,out ,_ ,in2 ,control-fun)
+                 (if type-error-expected
+                     (error (format "test ~a passed typechecking but should not have." test-name)) '())
+                 (control-fun 'wait)
+                 (cond [(eq? (control-fun 'status) 'done-ok)
+                        (let ([result (read-line (car progout))])
+                          (if (eq? (string->symbol result) (string->symbol output))
+                              (begin (display test-name)(display " ")(flush-output))
+                            (error (format "test ~a failed, output: ~a, expected ~a"
+                                           test-name result output))))]
+                       [else
+                        (error
+                         (format "test ~a error in x86 execution, exit code: ~a"
+                                 test-name (control-fun 'exit-code)))])
+                 (close-input-port in1)
+                 (close-input-port in2)
+                 (close-output-port out)])
+         )))
 
 ;; Takes a function of 1 argument (or #f) and Racket expression, and
 ;; returns whether the expression is well-typed. If the first argument
@@ -402,26 +405,26 @@
 ;; (error) function when it encounters a type error, or that it
 ;; returns #f when it encounters a type error. This function then
 ;; returns whether a type error was encountered.
-(define test-typecheck 
+(define test-typecheck
   (lambda (tcer exp)
     (if (eq? tcer #f) exp
-        (let ([res 
-               (with-handlers ([exn:fail?
-                                (lambda (e) #f)])
-                 (tcer exp))])
-          (match res
-           [#f #f]
-           [`(program ,elts ...) res]
-           [else exp])))))
+      (let ([res
+             (with-handlers ([exn:fail?
+                              (lambda (e) #f)])
+                            (tcer exp))])
+        (match res
+               [#f #f]
+               [`(program ,elts ...) res]
+               [else exp])))))
 
 (define assert
   (lambda (msg b)
     (if (not b)
         (begin
-          (display "ERROR: ")
-          (display msg)
-          (newline))
-        (void))))
+         (display "ERROR: ")
+         (display msg)
+         (newline))
+      (void))))
 
 
 ;; System V Application Binary Interface
@@ -436,10 +439,10 @@
 
 ;; there are 13 general registers:
 (define general-registers (vector 'rbx 'rcx 'rdx 'rsi 'rdi
-                                      'r8 'r9 'r10 'r11 'r12 
+                                  'r8 'r9 'r10 'r11 'r12
                                   'r13 'r14 'r15))
 
-;; registers-for-alloc should always inlcude the arg-registers. -Jeremy 
+;; registers-for-alloc should always inlcude the arg-registers. -Jeremy
 (define registers-for-alloc general-registers)
 
 (define byte-register-table
@@ -465,6 +468,13 @@
 (define (register->color r)
   (cdr (assq r reg-colors)))
 
+(define (color->register c)
+  (let ([result (findf (lambda (pair) (eq? (cdr pair) c))
+                       reg-colors)])
+    (if result
+      (car result)
+      #f)))
+
 (define registers (set-union (list->set (vector->list general-registers))
                              (set 'rax 'rsp 'rbp '__flag)))
 
@@ -483,22 +493,22 @@
 ; Boolean)).  If you try to print nested vectors that are more than 4
 ; levels deep, the 5th vector will be printed as #(...).
 (define (print-by-type ty [depth 12])
-  (define (mov-and-print depth) 
+  (define (mov-and-print depth)
     (lambda (ty index)
       (format "\tmovq\t~a(%r~a), %rax\n~a" (* 8 (+ 1 index)) depth (print-by-type ty (+ 1 depth)))))
   (match ty
-    ['Void (format "\tcallq\t~a\n" (label-name "print_void"))]
-    ['Integer 
-     (format "\tmovq\t%rax, %rdi\n\tcallq\t~a\n" (label-name "print_int"))]
-    ['Boolean 
-     (format "\tmovq\t%rax, %rdi\n\tcallq\t~a\n" (label-name "print_bool"))]
-    [`(Vector ,tys ...)
-     (if (> depth 15)
-         (format "\tmovq\t%rax, %rdi\n\tcallq\t~a\n" (label-name "print_ellipsis"))
-         (string-join (map (mov-and-print depth) tys (range (length tys)))
-                      (format "\tcallq\t~a\n" (label-name "print_space"))
-                      #:before-first (format "\tmovq\t%rax, %r~a\n\tcallq\t~a\n" depth (label-name "print_vecbegin"))
-                      #:after-last (format "\tcallq\t~a\n" (label-name "print_vecend"))))]))
+         ['Void (format "\tcallq\t~a\n" (label-name "print_void"))]
+         ['Integer
+          (format "\tmovq\t%rax, %rdi\n\tcallq\t~a\n" (label-name "print_int"))]
+         ['Boolean
+          (format "\tmovq\t%rax, %rdi\n\tcallq\t~a\n" (label-name "print_bool"))]
+         [`(Vector ,tys ...)
+          (if (> depth 15)
+              (format "\tmovq\t%rax, %rdi\n\tcallq\t~a\n" (label-name "print_ellipsis"))
+            (string-join (map (mov-and-print depth) tys (range (length tys)))
+                         (format "\tcallq\t~a\n" (label-name "print_space"))
+                         #:before-first (format "\tmovq\t%rax, %r~a\n\tcallq\t~a\n" depth (label-name "print_vecbegin"))
+                         #:after-last (format "\tcallq\t~a\n" (label-name "print_vecend"))))]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Graph ADT
@@ -512,13 +522,18 @@
 
 (define (add-edges graph pairs)
   (cond [(null? pairs) graph]
-        [(pair? (car pairs)) 
-          (add-edge graph (caar pairs) (cdar pairs))
-          (add-edges graph (cdr pairs))
-          graph]
+        [(pair? (car pairs))
+         (add-edge graph (caar pairs) (cdar pairs))
+         (add-edges graph (cdr pairs))
+         graph]
         [else (add-edges graph (cdr pairs))]))
 
 (define (adjacent graph u)
+  (if (hash-has-key? graph u)
+      (hash-ref graph u)
+      #f))
+
+(define (info graph u)
   (hash-ref graph u))
 
 (define (vertices graph)
@@ -527,17 +542,60 @@
 (define (print-dot graph file-name)
   (if (at-debug-level 1)
       (call-with-output-file file-name #:exists 'replace
-        (lambda (out-file)
-          (write-string "strict graph {" out-file) (newline out-file)
-          
-          (for ([v (vertices graph)])
-               (write-string (format "~a;\n" v) out-file))
-          
-          (for ([v (vertices graph)])
-               (for ([u (adjacent graph v)])
-                    (write-string (format "~a -- ~a;\n" u v) out-file)))
-          
-          (write-string "}" out-file)
-          (newline out-file)))
-      '()))
-      
+                             (lambda (out-file)
+                               (write-string "strict graph {" out-file) (newline out-file)
+                               
+                               (for ([v (vertices graph)])
+                                    (write-string (format "~a;\n" v) out-file))
+                               
+                               (for ([v (vertices graph)])
+                                    (for ([u (adjacent graph v)])
+                                         (write-string (format "~a -- ~a;\n" u v) out-file)))
+                               
+                               (write-string "}" out-file)
+                               (newline out-file)))
+    '()))
+
+;;; General dict
+
+(define (make-color-info-hash var-list)
+  (make-hash (map (lambda (v) 
+                    (if (set-member? registers v)
+                        (cons v (cons (register->color v) (set)))
+                        (cons v (cons -1 (set)))))
+                  var-list)))
+
+(define (set-info! hash var info)
+  (hash-set! hash var info))
+
+(define (add-saturation-color! hash var saturation-color)
+  (let ([cur-color (color hash var)]
+        [adj-color-set (saturation hash var)])
+    (hash-set! hash var (cons cur-color (set-add adj-color-set saturation-color)))))
+
+(define (set-color! hash var color)
+  (let ([adj-color-set (saturation hash var)])
+    (hash-set! hash var (cons color adj-color-set))))
+
+(define (saturation hash var)
+  (if (hash-has-key? hash var)
+      (cdr (hash-ref hash var))
+      (set)))
+
+(define (color hash var)
+  (if (hash-has-key? hash var)
+      (car (hash-ref hash var))
+      -1))
+
+(define (highest-saturation-var color-info-hash var-list)
+  (let* ([var-saturation-count-list (map (lambda (v) (cons v (set-count (saturation color-info-hash v)))) var-list)])
+    (if (null? var-saturation-count-list)
+      #f
+      (car (argmax cdr var-saturation-count-list)))
+    ))
+
+(display (highest-saturation-var (make-hash (list (cons 'a (cons -1 (set)))
+                                         (cons 'b (cons -1 (set 1)))
+                                         (cons 'c (cons -1 (set 2 1)))
+                                         (cons 'd (cons -1 (set)))))
+                                 '(a b c d)))

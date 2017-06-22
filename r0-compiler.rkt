@@ -221,6 +221,6 @@
     ("flatten" ,(send compiler flatten2) ,interp-C)
     ("select instructions" ,(send compiler select-instructions) ,interp-x86)
     ("assign homes" ,(send compiler assign-homes (dict-init)) ,interp-x86)
-    ("patch instructions" ,(send compiler patch-instructions) ,interp-x86)
-    ("print x86" ,(send compiler print-x86) #f)
+    ;("patch instructions" ,(send compiler patch-instructions) ,interp-x86)
+    ;("print x86" ,(send compiler print-x86) #f)
     )))

@@ -12,9 +12,9 @@
   (class r0-compiler
          
          (super-new)
-
+         
          (inherit flatten-list-1)
-
+         
          ; pass uncover-live : x86* -> x86*
          (define/public (uncover-live)
            (lambda (ast)
@@ -65,7 +65,7 @@
            (lambda (ast)
              (match ast
                     [`(program (,args ,live-afters ...) ,es ...)
-                     `(program ,(cons args (_helper es live-afters (make-graph '()))) ,@es)]
+                     `(program ,(list args (_helper es live-afters (make-graph '()))) ,@es)]
                     [else ast]
                     )))
          
@@ -100,6 +100,93 @@
                       )
                )))
          
+         ; pass allocate-registers : x86* -> x86*
+         (define/public (allocate-registers var-reg-list)
+           (lambda (ast)
+             (define _var-reg-list->var-list
+               (lambda (lst)
+                 (cond [(null? lst) '()]
+                       [else (cons (caar lst) (_var-reg-list->var-list (cdr lst)))])))
+             (match ast
+                    [`(program (,args ,graph) ,es ...)
+                      (let* ([var-color-list ((color-graph) graph args)]
+                             [var-register-list (map (lambda (v) 
+                                                       (cons (car v) 
+                                                             (color->register (cdr v)))) 
+                                                     var-color-list)]
+                             [reg-var-register-list (filter (lambda (v) (cdr v)) var-register-list)]
+                             [reg-var-list (_var-reg-list->var-list reg-var-register-list)]
+                             [stack-args (remove* reg-var-list args)])
+                          `(program ,stack-args ,@(map (allocate-registers reg-var-register-list) es))
+                       )]
+                    [(? symbol?) ast]
+                    [(? integer?) ast]
+                    [`(var ,x)
+                     (let* ([result (findf (lambda (v) (eq? (car v) x)) var-reg-list)])
+                       (if result
+                         `(reg ,(cdr result))
+                         `(var ,x)
+                         ))]
+                    [`(,op ,es ...) 
+                      `(,op ,@(map (allocate-registers var-reg-list) es))]
+                    [else ast]
+             )))
+         
+         ; Algorithm: DSATUR
+         ; Input: a graph G
+         ; Output: an assignment color[v] for each node v ∈ G
+         ; W ← vertices(G)
+         ; while W /= ∅ do
+         ;   pick a node u from W with the highest saturation,
+         ;     breaking ties randomly
+         ;   find the lowest color c that is not in {color[v] : v ∈ adjacent(v)}
+         ;   color[u] ← c
+         ;   W ← W − {u}
+         ;
+         ; param `graph` an interference graph
+         ; param `var-list` a list of all the variables in the program
+         ; return a mapping of all variables to their colors
+         ;
+         (define/public (color-graph)
+           (lambda (graph var-list)
+             (define inner
+               (lambda (graph var-color-info-hash var-list)
+                 (if (null? var-list)
+                     ; Convert to a mapping of all variables to their colors
+                     (hash-map var-color-info-hash (lambda (var info) (cons var (car info))))
+                     (begin
+                      (let* ([current-var (highest-saturation-var var-color-info-hash var-list)]
+                             [current-color (_new-color (saturation var-color-info-hash current-var))])
+                            (set-color! var-color-info-hash current-var current-color)
+                            (let ([adjacent-set (adjacent graph current-var)])
+                              (if adjacent-set
+                                (for/set ([adj (adjacent graph current-var)])
+                                  (add-saturation-color! var-color-info-hash adj current-color))
+                                #f))
+                            (inner graph var-color-info-hash (set-remove var-list current-var)))))))
+             (inner graph (make-color-info-hash (hash-keys graph)) var-list)
+             ))
+         
+         (define _new-color
+           (lambda (color-saturation-set)
+             (define inner
+               (lambda (color-saturation-set n)
+                 (if (set-member? color-saturation-set n)
+                     (inner color-saturation-set (+ n 1))
+                   n)))
+             (inner color-saturation-set 0)))
+         
+         ; Update this var's color and its adjacent color set
+         ; var-color-info-hash: var => (color saturation-color-set)
+         ; color: start from 0, -1 means no color set yet
+         (define _update-color!
+           (lambda (var color var-color-info-hash adjacent-graph)
+             (let ([adjacent-set (adjacent adjacent-graph)])
+               (set-color! var-color-info-hash var color)
+               (for/set ([i adjacent-set])
+                        (add-saturation-color! var-color-info-hash i color))
+               )))
+         
          ))
 
 ;; Define the passes to be used by interp-tests and the grader
@@ -107,12 +194,13 @@
 ;; should be named "compiler.rkt"
 (define r0-reg-passes
   (let ([compiler (new r0-reg-compiler)])
-  `( ("uniquify" ,(send compiler uniquify '((dict-init))) ,interp-scheme)
-    ("flatten" ,(send compiler flatten2) ,interp-C)
-    ("select instructions" ,(send compiler select-instructions) ,interp-x86)
-    ("uncover lives" ,(send compiler uncover-live) ,interp-x86)
-    ("build interference" ,(send compiler build-interference) ,interp-x86)
-    ;("assign homes" ,(assign-homes (dict-init)) ,interp-x86)
-    ;("patch instructions" ,patch-instructions ,interp-x86)
-    ;("print x86" ,print-x86 #f)
-    )))
+    `( ("uniquify" ,(send compiler uniquify '((dict-init))) ,interp-scheme)
+      ("flatten" ,(send compiler flatten2) ,interp-C)
+      ("select instructions" ,(send compiler select-instructions) ,interp-x86)
+      ("uncover lives" ,(send compiler uncover-live) ,interp-x86)
+      ("build interference" ,(send compiler build-interference) ,interp-x86)
+      ("allocate registers" ,(send compiler allocate-registers '()) ,interp-x86)
+      ("assign homes" ,(send compiler assign-homes (dict-init)) ,interp-x86)
+      ;("patch instructions" ,(send compiler patch-instructions) ,interp-x86)
+      ;("print x86" ,(send compiler print-x86) #f)
+      )))
