@@ -105,36 +105,37 @@
          
          ; pass allocate-registers : x86* -> x86*
          (define/public (allocate-registers var-reg-list)
-           (lambda (ast)
-             (define _var-reg-list->var-list
-               (lambda (lst)
-                 (cond [(null? lst) '()]
-                       [else (cons (caar lst) (_var-reg-list->var-list (cdr lst)))])))
-             (match ast
-                    [`(program (,args ,graph) ,es ...)
-                     (let* ([var-color-list ((color-graph) graph args)]
-                            [var-register-list (map (lambda (v)
-                                                      (cons (car v)
-                                                            (color->register (cdr v))))
-                                                    var-color-list)]
-                            [reg-var-register-list (filter (lambda (v) (cdr v)) var-register-list)]
-                            [reg-var-list (_var-reg-list->var-list reg-var-register-list)]
-                            [stack-args (remove* reg-var-list args)])
-                       `(program ,stack-args ,@(map (allocate-registers reg-var-register-list) es))
-                       )]
-                    [(? symbol?) ast]
-                    [(? integer?) ast]
-                    [`(var ,x)
-                     (let* ([result (findf (lambda (v) (eq? (car v) x)) var-reg-list)])
-                       (if result
-                           `(reg ,(cdr result))
-                         `(var ,x)
-                         ))]
-                    [`(,op ,es ...)
-                     `(,op ,@(map (allocate-registers var-reg-list) es))]
-                    [else ast]
-                    )))
-         
+                        (lambda (ast)
+                          (define _var-reg-list->var-list
+                            (lambda (lst)
+                              (cond [(null? lst) '()]
+                                    [else (cons (caar lst) (_var-reg-list->var-list (cdr lst)))])))
+                          (match ast
+                                 [`(program (,args ,graph) ,es ...)
+                                   (let* ([move-graph (build-move-graph es)]
+                                          [var-color-list ((color-graph) graph move-graph args)]
+                                          [var-register-list (map (lambda (v)
+                                                                    (cons (car v)
+                                                                          (color->register (cdr v))))
+                                                                  var-color-list)]
+                                          [reg-var-register-list (filter (lambda (v) (cdr v)) var-register-list)]
+                                          [reg-var-list (_var-reg-list->var-list reg-var-register-list)]
+                                          [stack-args (remove* reg-var-list args)])
+                                     `(program ,stack-args ,@(map (allocate-registers reg-var-register-list) es))
+                                     )]
+                                 [(? symbol?) ast]
+                                 [(? integer?) ast]
+                                 [`(var ,x)
+                                   (let* ([result (findf (lambda (v) (eq? (car v) x)) var-reg-list)])
+                                     (if result
+                                       `(reg ,(cdr result))
+                                       `(var ,x)
+                                       ))]
+                                 [`(,op ,es ...)
+                                   `(,op ,@(map (allocate-registers var-reg-list) es))]
+                                 [else ast]
+                                 )))
+
          ; Algorithm: DSATUR
          ; Input: a graph G
          ; Output: an assignment color[v] for each node v ∈ G
@@ -151,34 +152,60 @@
          ; return a mapping of all variables to their colors
          ;
          (define/public (color-graph)
-           (lambda (graph var-list)
-             (define inner
-               (lambda (graph var-color-info-hash var-list)
-                 (if (null? var-list)
-                     ; Convert to a mapping of all variables to their colors
-                   (hash-map var-color-info-hash (lambda (var info) (cons var (car info))))
-                   (begin
-                    (let* ([current-var (highest-saturation-var var-color-info-hash var-list)]
-                           [current-color (_new-color (saturation var-color-info-hash current-var))])
-                      (set-color! var-color-info-hash current-var current-color)
-                      (let ([adjacent-set (adjacent graph current-var)])
-                        (if adjacent-set
-                            (for/set ([adj (adjacent graph current-var)])
-                                     (add-saturation-color! var-color-info-hash adj current-color))
-                          #f))
-                      (inner graph var-color-info-hash (set-remove var-list current-var)))))))
-             (inner graph (make-color-info-hash (hash-keys graph)) var-list)
-             ))
-         
+                        (lambda (interference-graph move-graph var-list)
+                          (define inner
+                            (lambda (interference-graph move-graph var-color-info-hash var-list)
+                              (if (null? var-list)
+                                ; Convert to a mapping of all variables to their colors
+                                (hash-map var-color-info-hash (lambda (var info) (cons var (car info))))
+                                (begin
+                                  (let* ([current-var (highest-saturation-var var-color-info-hash var-list)]
+                                         [current-move-graph-adjacent-var-set (if (adjacent move-graph current-var) (adjacent move-graph current-var) (set))]
+                                         [var-color-hash (make-hash (hash-map var-color-info-hash (lambda (var info) (cons var (car info)))))]
+                                         [current-move-graph-adjacent-color-set 
+                                           (list->set (filter (lambda (c) (not (eq? c -1)))
+                                                              (set-map 
+                                                                current-move-graph-adjacent-var-set
+                                                                (lambda (v) 
+                                                                  (if (hash-has-key? var-color-hash v)
+                                                                    (hash-ref var-color-hash v)
+                                                                    -1)))))]
+                                         [current-color (_new-color (saturation var-color-info-hash current-var) current-move-graph-adjacent-color-set)])
+                                    (set-color! var-color-info-hash current-var current-color)
+                                    (let ([adjacent-set (adjacent interference-graph current-var)])
+                                      (if adjacent-set
+                                        (for/set ([adj (adjacent interference-graph current-var)])
+                                                 (add-saturation-color! var-color-info-hash adj current-color))
+                                        #f))
+                                    (inner interference-graph move-graph var-color-info-hash (set-remove var-list current-var)))))))
+                          (inner interference-graph move-graph (make-color-info-hash (hash-keys interference-graph)) var-list)
+                          ))
+         ; Get new color from the current var's color saturation set and adjacent set of move graph
          (define _new-color
-           (lambda (color-saturation-set)
+           (lambda (color-saturation-set move-graph-adjacent-color-set)
              (define inner
                (lambda (color-saturation-set n)
                  (if (set-member? color-saturation-set n)
-                     (inner color-saturation-set (+ n 1))
+                   (inner color-saturation-set (+ n 1))
                    n)))
-             (inner color-saturation-set 0)))
-         
+             (let ([set (set-subtract move-graph-adjacent-color-set color-saturation-set)])
+               (if (set-empty? set)
+                 (inner color-saturation-set 0)
+                 (set-first set)))))
+
+         ; Build the move graph from instructions
+         (define build-move-graph
+           (lambda (instructions)
+             (define inner
+               (lambda (instructions graph)
+                 (cond [(null? instructions) graph]
+                       [else 
+                         (match (car instructions)
+                                [`(movq (var ,e1) (var ,e2)) 
+                                  (begin (add-edge graph e1 e2)
+                                         (inner (cdr instructions) graph))]
+                                [else (inner (cdr instructions) graph)])])))
+             (inner instructions (make-graph '())))) 
          ; Update this var's color and its adjacent color set
          ; var-color-info-hash: var => (color saturation-color-set)
          ; color: start from 0, -1 means no color set yet
@@ -189,7 +216,18 @@
                (for/set ([i adjacent-set])
                         (add-saturation-color! var-color-info-hash i color))
                )))
-         
+
+         ; Remove `movq` instruction if src and dst register are the same
+         (define/override (patch-instructions)
+                          (lambda (ast)
+                            (match ast
+                                   [`(movq (reg ,e1) (reg ,e2)) 
+                                     (if (eq? e1 e2) 
+                                       `()
+                                       `((movq (reg ,e1) (reg ,e2))))]
+                                   [else 
+                                     ((super patch-instructions) ast)]
+                        )))
          ))
 
 ;; Define the passes to be used by interp-tests and the grader
