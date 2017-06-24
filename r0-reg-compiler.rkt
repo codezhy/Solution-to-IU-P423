@@ -10,32 +10,32 @@
 
 (define r0-reg-compiler
   (class r0-compiler
-         
+
          (super-new)
-         
+
          (inherit flatten-list-1)
-         
+
          ; pass uncover-live : x86* -> x86*
          ; Compute from instructions back to front
          (define/public (uncover-live)
-           (lambda (ast)
-             (match ast
-                    [`(program ,args ,es ...)
-                     (let ([live-afters (_uncover-live (reverse es) (list (set)))])
-                       `(program ,(cons args live-afters) ,@es))]
-                    )))
-         
+                        (lambda (ast)
+                          (match ast
+                                 [`(program ,args ,es ...)
+                                   (let ([live-afters (_uncover-live (reverse es) (list (set)))])
+                                     `(program ,(cons args live-afters) ,@es))]
+                                 )))
+
          (define _uncover-live
            (lambda (instruction-lst live-afters)
-               (cond [(null? instruction-lst) (cdr (reverse live-afters))] ; drop the unexists first live-after set
-                     [else
-                      (_uncover-live (cdr instruction-lst)
-                                     (append live-afters
-                                             (list (set-union (set-subtract (last live-afters)
-                                                                            (_write-variables (car instruction-lst)))
-                                                              (_read-variables (car instruction-lst))))))]
-                     )))
-         
+             (cond [(null? instruction-lst) (cdr (reverse live-afters))] ; drop the unexists first live-after set
+                   [else
+                     (_uncover-live (cdr instruction-lst)
+                                    (append live-afters
+                                            (list (set-union (set-subtract (last live-afters)
+                                                                           (_write-variables (car instruction-lst)))
+                                                             (_read-variables (car instruction-lst))))))]
+                   )))
+
          (define _variables
            (lambda (instruction)
              (match instruction
@@ -44,7 +44,7 @@
                     [`(,op (var ,e1) (var ,e2)) (set e1 e2)]
                     [`(,op (var ,e)) (set e)]
                     [else (set)])))
-         
+
          (define _read-variables
            (lambda (instruction)
              (match instruction
@@ -53,7 +53,7 @@
                     [`(addq ,e1 ,e2) (set-union (_read-variables e1) (_read-variables e2))]
                     [`(neq (var ,e1)) (set e1)]
                     [else (set)])))
-         
+
          (define _write-variables
            (lambda (instruction)
              (match instruction
@@ -62,47 +62,47 @@
                     [`(addq ,e1 ,e2) (_write-variables e2)]
                     [`(neq (var ,e1)) (set e1)]
                     [else (set)])))
-         
+
          ; pass build-interference : x86* -> x86*
          (define/public (build-interference)
-           (lambda (ast)
-             (match ast
-                    [`(program (,args ,live-afters ...) ,es ...)
-                     `(program ,(list args (_helper es live-afters (make-graph '()))) ,@es)]
-                    [else ast]
-                    )))
-         
+                        (lambda (ast)
+                          (match ast
+                                 [`(program (,args ,live-afters ...) ,es ...)
+                                   `(program ,(list args (_helper es live-afters (make-graph '()))) ,@es)]
+                                 [else ast]
+                                 )))
+
          ; List of Instruction -> List of Live-after Set -> Graph -> Gragh
          (define _helper
            (lambda (instructions live-afters graph)
              (if (null? instructions)
-                 graph
+               graph
                (match (car instructions)
                       [`(movq ,s ,d)
-                       (let* ([live-after-set (car live-afters)]
-                              [vertices (set-subtract live-after-set (_variables `(movq ,s ,d)))]
-                              [edges (flatten-list-1 (set-map vertices
-                                                              (lambda (v) (set-map (_write-variables `(movq ,s ,d))
-                                                                                   (lambda (d) (cons d v))))))])
-                         (_helper (cdr instructions) (cdr live-afters) (add-edges graph edges)))]
+                        (let* ([live-after-set (car live-afters)]
+                               [vertices (set-subtract live-after-set (_variables `(movq ,s ,d)))]
+                               [edges (flatten-list-1 (set-map vertices
+                                                               (lambda (v) (set-map (_write-variables `(movq ,s ,d))
+                                                                                    (lambda (d) (cons d v))))))])
+                          (_helper (cdr instructions) (cdr live-afters) (add-edges graph edges)))]
                       [`(addq ,s ,d)
-                       (let* ([live-after-set (car live-afters)]
-                              [vertices (set-subtract live-after-set (_write-variables `(addq ,s ,d)))]
-                              [edges (flatten-list-1 (set-map vertices
-                                                              (lambda (v) (set-map (_write-variables `(addq ,s ,d))
-                                                                                   (lambda (d) (cons d v))))))])
-                         (_helper (cdr instructions) (cdr live-afters) (add-edges graph edges)))]
+                        (let* ([live-after-set (car live-afters)]
+                               [vertices (set-subtract live-after-set (_write-variables `(addq ,s ,d)))]
+                               [edges (flatten-list-1 (set-map vertices
+                                                               (lambda (v) (set-map (_write-variables `(addq ,s ,d))
+                                                                                    (lambda (d) (cons d v))))))])
+                          (_helper (cdr instructions) (cdr live-afters) (add-edges graph edges)))]
                       [`(callq ,label)
-                       (let* ([live-after-set (car live-afters)]
-                              [edges (flatten-list-1 (set-map live-after-set
-                                                              (lambda (v) (set-map caller-save
-                                                                                   (lambda (r) (cons r v))))))])
-                         (_helper (cdr instructions) (cdr live-afters) (add-edges graph edges)))]
+                        (let* ([live-after-set (car live-afters)]
+                               [edges (flatten-list-1 (set-map live-after-set
+                                                               (lambda (v) (set-map caller-save
+                                                                                    (lambda (r) (cons r v))))))])
+                          (_helper (cdr instructions) (cdr live-afters) (add-edges graph edges)))]
                       [else
-                       (_helper (cdr instructions) (cdr live-afters) graph)]
+                        (_helper (cdr instructions) (cdr live-afters) graph)]
                       )
                )))
-         
+
          ; pass allocate-registers : x86* -> x86*
          (define/public (allocate-registers var-reg-list)
                         (lambda (ast)
@@ -227,7 +227,7 @@
                                        `((movq (reg ,e1) (reg ,e2))))]
                                    [else 
                                      ((super patch-instructions) ast)]
-                        )))
+                                   )))
          ))
 
 ;; Define the passes to be used by interp-tests and the grader
